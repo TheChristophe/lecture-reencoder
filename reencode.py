@@ -100,4 +100,4 @@ else:
     subprocess.run(['ffmpeg'] + in_param + video_encode[0] + video_filters + audio_encode + audio_filters + out_param)
 
 if args.overwrite:
-    os.replace('{}{}{}'.format(filename, args.distinguisher, ext), args.file)
+    os.replace('{}{}{}'.format(filename, args.distinguisher, ext), '{}{}'.format(filename, ext))
