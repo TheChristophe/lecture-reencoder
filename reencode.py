@@ -7,7 +7,7 @@ import sys
 
 parser = argparse.ArgumentParser(description='Lecture re-encoding helper')
 parser.add_argument('file', help='The file to reencode')
-parser.add_argument('container', nargs='?', default='', help='Use a different container format')
+parser.add_argument('container', nargs='?', default=None, help='Use a different container format')
 parser.add_argument('-2', '--two-pass', action='store_true', help='Use two-pass encoding instead of single-pass')
 parser.add_argument('-d', '--distinguisher', nargs='?', default='.2', help='File suffix to add to re-encoded files')
 parser.add_argument('-o', '--overwrite', action='store_true', help='Overwrite the original file after re-encoding')
@@ -23,7 +23,7 @@ parser.add_argument('--audio-bitrate', nargs='?', default='64', help='Set the au
 args = parser.parse_args()
 
 # output filename
-if len(args.container) == 0:
+if args.container is None:
     filename, orig_ext = os.path.splitext(args.file)
     ext = orig_ext
 else:
