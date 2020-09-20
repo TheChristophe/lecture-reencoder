@@ -91,4 +91,4 @@ else:
     subprocess.run(['ffmpeg'] + in_file + encode_params[0] + filters + out_file)
 
 if args.overwrite:
-    os.replace(out_file, in_file)
+    os.replace('{}{}{}'.format(filename, args.distinguisher, ext), args.file)
