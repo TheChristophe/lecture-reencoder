@@ -15,8 +15,10 @@ parser.add_argument('-o', '--overwrite', action='store_true', help='Overwrite th
 parser.add_argument('--cap-framerate', action='store_true', help='Limit framerate to 5fps')
 parser.add_argument('--merge-stereo', action='store_true', help='Merge the stereo channels into each other')
 parser.add_argument('--no-decimate', action='store_true', help='Do not drop similar frames')
-parser.add_argument('--reencode-audio', action='store_true', help='Reencode audio as 128k AAC')
-parser.add_argument('--video-bitrate', nargs='?', default='128', help='Set a  two-pass video bitrate to use')
+parser.add_argument('--reencode-audio', action='store_true', help='Reencode audio as opus')
+parser.add_argument('--video-crf', nargs='?', default='23', help='Set the crf to use, if applicable')
+parser.add_argument('--video-bitrate', nargs='?', default='128', help='Set the two-pass video bitrate to target')
+parser.add_argument('--audio-bitrate', nargs='?', default='64', help='Set the audio bitrate to use')
 
 args = parser.parse_args()
 
@@ -34,26 +36,33 @@ print("{}{} => {}{}{}".format(filename, orig_ext, filename, args.distinguisher, 
 
 two_minutes = '-ss 0 -t 120'
 
-in_file = ['-i', '{}'.format(args.file)]
-out_file = ['{}{}{}'.format(filename, args.distinguisher, ext)]
+in_file = args.file
+in_param = ['-i', in_file]
+out_file = '{}{}{}'.format(filename, args.distinguisher, ext)
+out_param = [out_file]
 
 # set up encoding
-encode_params = []
+video_encode = []
+# do not init video_encode to video_copy, this will break if you apply filters
+video_copy = ['-c:v', 'copy']
 if ext == '.webm': # if webm, use vp9
-    encode_params.append([]) # todo: vp9
+    video_encode.append([]) # todo: vp9
 elif ext == '.mp4': # if mp4, use h265 (or av1)
     if args.two_pass:
-        encode_params.append(['-c:v', 'libx265', '-x265-params', 'pass=1', '-b:v {args.video_bitrate}k'])
-        encode_params.append(['-c:v', 'libx265', '-b:v', '{args.video_bitrate}k', '-x265-params', 'pass=2'])
+        video_encode.append(['-c:v', 'libx265', '-x265-params', 'pass=1', '-b:v {}k'.format(args.video_bitrate)])
+        video_encode.append(['-c:v', 'libx265', '-b:v', '{}k'.format(args.video_bitrate), '-x265-params', 'pass=2'])
     else:
-        encode_params.append(['-c:v',  'libx265', '-preset', 'fast', '-x265-params', 'crf=23'])
+        video_encode.append(['-c:v',  'libx265', '-preset', 'fast', '-x265-params', 'crf={}'.format(args.video_crf)])
 
+audio_encode = []
+# do not init audio_encode to audio_copy, this will break if you apply filters
+audio_copy = ['-c:a', 'copy']
 if args.reencode_audio:
-    if ext == '.mp4':
-        encode_params += ['-c:a', 'aac', '-b:a', '128k']
-    else:
-        print('AAC not allowed outside mp4')
-        sys.exit(-1)
+    if ext == '.mp4': # assuming it does not use opus
+        audio_encode += ['-c:a', 'libopus', '-b:a', '{}k'.format(args.audio_bitrate)]
+    # webm should already be using opus
+    elif ext == '.webm':
+        pass
 
 two_pass = ['-an', '-f', 'null', 'NUL']
 
@@ -67,6 +76,7 @@ if not args.no_decimate:
     # fixes the warning but not the output files
 if args.cap_framerate:
     video_filter_args.append('fps=fps=5')
+
 if len(video_filter_args) > 0:
     video_filters = ['-filter:v', ','.join(video_filter_args)] + video_filter_extras
 else:
@@ -75,20 +85,19 @@ else:
 audio_filter_args = []
 if args.merge_stereo:
     audio_filter_args.append('pan=stereo|c0<c0+c1|c1<c0+c1')
+
 if len(audio_filter_args) > 0:
     audio_filters = ['-af', ','.join(audio_filter_args)]
 else:
     audio_filters = []
 
-filters = video_filters + audio_filters
-
 # execute
 if args.two_pass:
-    r = subprocess.run(['ffmpeg', '-y', in_file, encode_params[0], two_pass])
+    r = subprocess.run(['ffmpeg'] + ['-y'] + in_param + video_encode[0] + two_pass)
     if r == 0:
-        subprocess.run(['ffmpeg', in_file, encode_params[1], filters, out_file])
+        subprocess.run(['ffmpeg'] + in_param + video_encode[1] + video_filters + audio_encode + audio_filters + out_param)
 else:
-    subprocess.run(['ffmpeg'] + in_file + encode_params[0] + filters + out_file)
+    subprocess.run(['ffmpeg'] + in_param + video_encode[0] + video_filters + audio_encode + audio_filters + out_param)
 
 if args.overwrite:
     os.replace('{}{}{}'.format(filename, args.distinguisher, ext), args.file)
