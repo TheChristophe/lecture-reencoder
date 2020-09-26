@@ -11,6 +11,7 @@ parser.add_argument('container', nargs='?', default=None, help='Use a different 
 parser.add_argument('-2', '--two-pass', action='store_true', help='Use two-pass encoding instead of single-pass')
 parser.add_argument('-d', '--distinguisher', nargs='?', default='.2', help='File suffix to add to re-encoded files')
 parser.add_argument('-o', '--overwrite', action='store_true', help='Overwrite the original file after re-encoding')
+parser.add_argument('-q', '--quiet', action='store_true', help='Only display errors')
 #parser.add_argument('--av1', action='store_true', help='Use AV1 instead of h265.')
 parser.add_argument('--cap-framerate', action='store_true', help='Limit framerate to 5fps')
 parser.add_argument('--merge-stereo', action='store_true', help='Merge the stereo channels into each other')
@@ -22,6 +23,10 @@ parser.add_argument('--audio-bitrate', nargs='?', default='64', help='Set the au
 
 args = parser.parse_args()
 
+ffmpeg = ['ffmpeg', '-hide_banner']
+if args.quiet:
+    ffmpeg += ['-loglevel', 'warning', '-nostats']
+
 # output filename
 if args.container is None:
     filename, orig_ext = os.path.splitext(args.file)
@@ -32,7 +37,8 @@ else:
     if not '.' in ext:
         ext = '.' + ext
 
-print("{}{} => {}{}{}".format(filename, orig_ext, filename, args.distinguisher, ext))
+if not args.quiet:
+    print("{}{} => {}{}{}".format(filename, orig_ext, filename, args.distinguisher, ext))
 
 two_minutes = '-ss 0 -t 120'
 
@@ -93,11 +99,11 @@ else:
 
 # execute
 if args.two_pass:
-    r = subprocess.run(['ffmpeg'] + ['-y'] + in_param + video_encode[0] + two_pass)
+    r = subprocess.run(ffmpeg + ['-y'] + in_param + video_encode[0] + two_pass)
     if r.returncode == 0:
-        subprocess.run(['ffmpeg'] + in_param + video_encode[1] + video_filters + audio_encode + audio_filters + out_param)
+        subprocess.run(ffmpeg + in_param + video_encode[1] + video_filters + audio_encode + audio_filters + out_param)
 else:
-    subprocess.run(['ffmpeg'] + in_param + video_encode[0] + video_filters + audio_encode + audio_filters + out_param)
+    subprocess.run(ffmpeg + in_param + video_encode[0] + video_filters + audio_encode + audio_filters + out_param)
 
 if args.overwrite:
     os.replace('{}{}{}'.format(filename, args.distinguisher, ext), '{}{}'.format(filename, ext))
