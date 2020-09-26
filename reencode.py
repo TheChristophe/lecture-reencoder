@@ -69,6 +69,8 @@ if args.reencode_audio:
     # webm should already be using opus
     elif ext == '.webm':
         pass
+else:
+    audio_encode = audio_copy
 
 two_pass = ['-an', '-f', 'null', 'NUL']
 
