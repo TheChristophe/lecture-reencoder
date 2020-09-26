@@ -14,7 +14,7 @@ parser.add_argument('-o', '--overwrite', action='store_true', help='Overwrite th
 #parser.add_argument('--av1', action='store_true', help='Use AV1 instead of h265.')
 parser.add_argument('--cap-framerate', action='store_true', help='Limit framerate to 5fps')
 parser.add_argument('--merge-stereo', action='store_true', help='Merge the stereo channels into each other')
-parser.add_argument('--no-decimate', action='store_true', help='Do not drop similar frames')
+parser.add_argument('--decimate', action='store_true', help='Drop similar frames')
 parser.add_argument('--reencode-audio', action='store_true', help='Reencode audio as opus')
 parser.add_argument('--video-crf', nargs='?', default='23', help='Set the crf to use, if applicable')
 parser.add_argument('--video-bitrate', nargs='?', default='128', help='Set the two-pass video bitrate to target')
@@ -69,7 +69,7 @@ two_pass = ['-an', '-f', 'null', 'NUL']
 # set up filters
 video_filter_args = []
 video_filter_extras = []
-if not args.no_decimate:
+if args.decimate:
     video_filter_args.append('mpdecimate')
     video_filter_extras += ['-vsync', 'vfr']
     # matroska: -max_interleave_delta 0?
