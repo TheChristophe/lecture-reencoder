@@ -55,10 +55,19 @@ if ext == '.webm': # if webm, use vp9
     video_encode.append([]) # todo: vp9
 elif ext == '.mp4': # if mp4, use h265 (or av1)
     if args.two_pass:
-        video_encode.append(['-c:v', 'libx265', '-x265-params', 'pass=1', '-b:v', '{}k'.format(args.video_bitrate)])
-        video_encode.append(['-c:v', 'libx265', '-b:v', '{}k'.format(args.video_bitrate), '-x265-params', 'pass=2'])
+        params = ['pass=1']
+        if args.quiet:
+            params.append('log-level=error')
+        video_encode.append(['-c:v', 'libx265', '-x265-params', ':'.join(params), '-b:v', '{}k'.format(args.video_bitrate)])
+        params = ['pass=2']
+        if args.quiet:
+            params.append('log-level=error')
+        video_encode.append(['-c:v', 'libx265', '-b:v', '{}k'.format(args.video_bitrate), '-x265-params', ':'.join(params)])
     else:
-        video_encode.append(['-c:v',  'libx265', '-preset', 'fast', '-x265-params', 'crf={}'.format(args.video_crf)])
+        params = ['crf={}'.format(args.video_crf)]
+        if args.quiet:
+            params.append('log-level=error')
+        video_encode.append(['-c:v',  'libx265', '-preset', 'fast', '-x265-params', ':'.join(params)])
 
 audio_encode = []
 # do not init audio_encode to audio_copy, this will break if you apply filters
