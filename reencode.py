@@ -49,7 +49,7 @@ if ext == '.webm': # if webm, use vp9
     video_encode.append([]) # todo: vp9
 elif ext == '.mp4': # if mp4, use h265 (or av1)
     if args.two_pass:
-        video_encode.append(['-c:v', 'libx265', '-x265-params', 'pass=1', '-b:v {}k'.format(args.video_bitrate)])
+        video_encode.append(['-c:v', 'libx265', '-x265-params', 'pass=1', '-b:v', '{}k'.format(args.video_bitrate)])
         video_encode.append(['-c:v', 'libx265', '-b:v', '{}k'.format(args.video_bitrate), '-x265-params', 'pass=2'])
     else:
         video_encode.append(['-c:v',  'libx265', '-preset', 'fast', '-x265-params', 'crf={}'.format(args.video_crf)])
@@ -94,7 +94,7 @@ else:
 # execute
 if args.two_pass:
     r = subprocess.run(['ffmpeg'] + ['-y'] + in_param + video_encode[0] + two_pass)
-    if r == 0:
+    if r.returncode == 0:
         subprocess.run(['ffmpeg'] + in_param + video_encode[1] + video_filters + audio_encode + audio_filters + out_param)
 else:
     subprocess.run(['ffmpeg'] + in_param + video_encode[0] + video_filters + audio_encode + audio_filters + out_param)
