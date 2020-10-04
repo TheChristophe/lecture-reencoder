@@ -19,7 +19,7 @@ parser.add_argument('--decimate', action='store_true', help='Drop similar frames
 parser.add_argument('--reencode-audio', action='store_true', help='Reencode audio as opus')
 parser.add_argument('--video-crf', nargs='?', default='23', help='Set the crf to use, if applicable')
 parser.add_argument('--video-bitrate', nargs='?', default='128', help='Set the two-pass video bitrate to target')
-parser.add_argument('--audio-bitrate', nargs='?', default='64', help='Set the audio bitrate to use')
+parser.add_argument('--audio-bitrate', nargs='?', default='32', help='Set the audio bitrate to use')
 
 args = parser.parse_args()
 
