@@ -81,7 +81,13 @@ if args.reencode_audio:
 else:
     audio_encode = audio_copy
 
-two_pass = ['-an', '-f', 'null', 'NUL']
+null_path = ''
+if os.name == 'nt':
+    null_path = 'NUL'
+else:
+    null_path = '/dev/null'
+
+two_pass = ['-an', '-f', 'null', null_path]
 
 # set up filters
 video_filter_args = []
