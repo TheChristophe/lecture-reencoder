@@ -52,7 +52,14 @@ video_encode = []
 # do not init video_encode to video_copy, this will break if you apply filters
 video_copy = ['-c:v', 'copy']
 if ext == '.webm': # if webm, use vp9
-    video_encode.append([]) # todo: vp9
+    if args.two_pass:
+        video_encode.append(['-c:v', 'libvpx-vp9', '-b:v', '{}k'.format(args.video_bitrate), '-pass', '1'])
+        video_encode.append(['-c:v', 'libvpx-vp9', '-b:v', '{}k'.format(args.video_bitrate), '-pass', '2'])
+    else:
+        video_encode.append(['-c:v', 'libvpx-vp9', '-b:v', '{}k'.format(args.video_bitrate)])
+    
+    # force reencode audio in case source is not opus
+    args.reencode_audio = True
 elif ext == '.mp4': # if mp4, use h265 (or av1)
     if args.two_pass:
         params = ['pass=1']
@@ -62,7 +69,7 @@ elif ext == '.mp4': # if mp4, use h265 (or av1)
         params = ['pass=2']
         if args.quiet:
             params.append('log-level=error')
-        video_encode.append(['-c:v', 'libx265', '-b:v', '{}k'.format(args.video_bitrate), '-x265-params', ':'.join(params)])
+        video_encode.append(['-c:v', 'libx265', '-x265-params', ':'.join(params), '-b:v', '{}k'.format(args.video_bitrate)])
     else:
         params = ['crf={}'.format(args.video_crf)]
         if args.quiet:
@@ -73,11 +80,8 @@ audio_encode = []
 # do not init audio_encode to audio_copy, this will break if you apply filters
 audio_copy = ['-c:a', 'copy']
 if args.reencode_audio:
-    if ext == '.mp4': # assuming it does not use opus
+    if ext == '.mp4' or ext == '.webm': # todo: only if not already using opus (e.g. coming from an mp4)
         audio_encode += ['-c:a', 'libopus', '-b:a', '{}k'.format(args.audio_bitrate)]
-    # webm should already be using opus
-    elif ext == '.webm':
-        pass
 else:
     audio_encode = audio_copy
 
