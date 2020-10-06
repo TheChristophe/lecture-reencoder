@@ -5,9 +5,10 @@ import os
 import subprocess
 import sys
 
-def get_audio_encoding():
-    #ffprobe -v error -select_streams a:0 -show_entries stream=codec_name -of default=noprint_wrappers=1:nokey=1 video.mkv
-    pass
+def get_audio_encoding(file):
+    p = subprocess.Popen(['ffprobe', '-v', 'error', '-select_streams', 'a:0', '-show_entries', 'stream=codec_name', '-of', 'default=noprint_wrappers=1:nokey=1', file], stdout=subprocess.PIPE)
+    line = p.stdout.readline().decode('utf-8').rstrip()
+    return line
 
 def main():
     parser = argparse.ArgumentParser(description='Lecture re-encoding helper')
@@ -84,11 +85,16 @@ def main():
     audio_encode = []
     # do not init audio_encode to audio_copy, this will break if you apply filters
     audio_copy = ['-c:a', 'copy']
+    opus_encode = ['-c:a', 'libopus', '-b:a', '{}k'.format(args.audio_bitrate)]
     if args.reencode_audio:
-        if ext == '.mp4' or ext == '.webm': # todo: only if not already using opus (e.g. coming from an mp4)
-            audio_encode += ['-c:a', 'libopus', '-b:a', '{}k'.format(args.audio_bitrate)]
+        if ext == '.mp4' or ext == '.webm':
+            audio_encode = opus_encode
     else:
-        audio_encode = audio_copy
+        if ext == '.webm' and get_audio_encoding(args.file) != 'opus':
+            # reencoding is required if converting to webm and opus is not available
+            audio_encode = opus_encode
+        else:
+            audio_encode = audio_copy
 
     null_path = ''
     if os.name == 'nt':
