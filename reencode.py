@@ -1,3 +1,4 @@
+#!/usr/bin/env python
 """Lecture re-encoder helper script."""
 
 import argparse
@@ -5,10 +6,22 @@ import os
 import subprocess
 import sys
 
+
 def get_audio_encoding(file):
-    p = subprocess.Popen(['ffprobe', '-v', 'error', '-select_streams', 'a:0', '-show_entries', 'stream=codec_name', '-of', 'default=noprint_wrappers=1:nokey=1', file], stdout=subprocess.PIPE)
+    p = subprocess.Popen(
+        ['ffprobe', '-v', 'error', '-select_streams', 'a:0', '-show_entries', 'stream=codec_name', '-of',
+         'default=noprint_wrappers=1:nokey=1', file], stdout=subprocess.PIPE)
     line = p.stdout.readline().decode('utf-8').rstrip()
     return line
+
+
+def get_video_encoding(file):
+    p = subprocess.Popen(
+        ['ffprobe', '-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=codec_name', '-of',
+         'default=noprint_wrappers=1:nokey=1', file], stdout=subprocess.PIPE)
+    line = p.stdout.readline().decode('utf-8').rstrip()
+    return line
+
 
 def main():
     parser = argparse.ArgumentParser(description='Lecture re-encoding helper')
@@ -18,11 +31,11 @@ def main():
     parser.add_argument('-d', '--distinguisher', nargs='?', default='.2', help='File suffix to add to re-encoded files')
     parser.add_argument('-o', '--overwrite', action='store_true', help='Overwrite the original file after re-encoding')
     parser.add_argument('-q', '--quiet', action='store_true', help='Only display errors')
-    #parser.add_argument('--av1', action='store_true', help='Use AV1 instead of h265.')
+    # parser.add_argument('--av1', action='store_true', help='Use AV1 instead of h265.')
     parser.add_argument('--cap-framerate', action='store_true', help='Limit framerate to 5fps')
     parser.add_argument('--merge-stereo', action='store_true', help='Merge the stereo channels into each other')
     parser.add_argument('--decimate', action='store_true', help='Drop similar frames')
-    parser.add_argument('--reencode-audio', action='store_true', help='Reencode audio as opus')
+    parser.add_argument('-a', '--reencode-audio', action='store_true', help='Reencode audio as opus')
     parser.add_argument('--video-crf', nargs='?', default='23', help='Set the crf to use, if applicable')
     parser.add_argument('--video-bitrate', nargs='?', default='128', help='Set the two-pass video bitrate to target')
     parser.add_argument('--audio-bitrate', nargs='?', default='32', help='Set the audio bitrate to use')
@@ -57,30 +70,38 @@ def main():
     video_encode = []
     # do not init video_encode to video_copy, this will break if you apply filters
     video_copy = ['-c:v', 'copy']
-    if ext == '.webm': # if webm, use vp9
+    if ext == '.webm':  # if webm, use vp9
+        if get_video_encoding(args.file) == 'vp9':
+            print('File already is vp9!')
+            return
         if args.two_pass:
             video_encode.append(['-c:v', 'libvpx-vp9', '-b:v', '{}k'.format(args.video_bitrate), '-pass', '1'])
             video_encode.append(['-c:v', 'libvpx-vp9', '-b:v', '{}k'.format(args.video_bitrate), '-pass', '2'])
         else:
             video_encode.append(['-c:v', 'libvpx-vp9', '-b:v', '{}k'.format(args.video_bitrate)])
-        
+
         # force reencode audio in case source is not opus
         args.reencode_audio = True
-    elif ext == '.mp4': # if mp4, use h265 (or av1)
+    elif ext == '.mp4':  # iyf mp4, use h265 (or av1)
+        if get_video_encoding(args.file) == 'hevc':
+            print('File already is h265!')
+            return
         if args.two_pass:
             params = ['pass=1']
             if args.quiet:
                 params.append('log-level=error')
-            video_encode.append(['-c:v', 'libx265', '-x265-params', ':'.join(params), '-b:v', '{}k'.format(args.video_bitrate)])
+            video_encode.append(['-c:v', 'libx265', '-preset', 'slow', '-x265-params', ':'.join(params), '-b:v',
+                                 '{}k'.format(args.video_bitrate)])
             params = ['pass=2']
             if args.quiet:
                 params.append('log-level=error')
-            video_encode.append(['-c:v', 'libx265', '-x265-params', ':'.join(params), '-b:v', '{}k'.format(args.video_bitrate)])
+            video_encode.append(['-c:v', 'libx265', '-preset', 'slow', '-x265-params', ':'.join(params), '-b:v',
+                                 '{}k'.format(args.video_bitrate)])
         else:
             params = ['crf={}'.format(args.video_crf)]
             if args.quiet:
                 params.append('log-level=error')
-            video_encode.append(['-c:v',  'libx265', '-preset', 'fast', '-x265-params', ':'.join(params)])
+            video_encode.append(['-c:v', 'libx265', '-preset', 'fast', '-x265-params', ':'.join(params)])
 
     audio_encode = []
     # do not init audio_encode to audio_copy, this will break if you apply filters
@@ -131,14 +152,22 @@ def main():
 
     # execute
     if args.two_pass:
-        r = subprocess.run(ffmpeg + ['-y'] + in_param + video_encode[0] + two_pass)
+        extra_params = []
+        if args.overwrite:
+            extra_params.append('-y')
+        r = subprocess.run(ffmpeg + extra_params + in_param + video_encode[0] + two_pass)
         if r.returncode == 0:
-            subprocess.run(ffmpeg + in_param + video_encode[1] + video_filters + audio_encode + audio_filters + out_param)
+            subprocess.run(ffmpeg + extra_params + in_param + video_encode[
+                1] + video_filters + audio_encode + audio_filters + out_param)
+            possible_dirt = ['x265_2pass.log', 'x265_2pass.log.cutree']
+            for dirt in possible_dirt:
+                os.remove(dirt)
     else:
         subprocess.run(ffmpeg + in_param + video_encode[0] + video_filters + audio_encode + audio_filters + out_param)
 
     if args.overwrite:
         os.replace('{}{}{}'.format(filename, args.distinguisher, ext), '{}{}'.format(filename, ext))
+
 
 if __name__ == "__main__":
     main()
