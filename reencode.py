@@ -3,8 +3,10 @@
 
 import argparse
 import os
+import shutil
 import subprocess
 import sys
+import tempfile
 import textwrap
 
 
@@ -106,116 +108,144 @@ def main():
 
     in_file = args.file
     in_param = ['-i', in_file]
+
+    # sanity check input vs output
+    if ext == '.web' and get_video_encoding(args.file) == 'vp9'\
+        or ext == '.mp4' and get_video_encoding(args.file) == 'hevc':
+        print(f'{TermColors.WARNING}Skipped (video codec already matches): {TermColors.ENDC}{in_file}.')
+        return
+
     out_file = f'{filename}{args.distinguisher}{ext}'
-    out_param = [out_file]
 
-    # set up encoding
-    video_encode = []
-    # do not init video_encode to video_copy, this will break if you apply filters
-    # TODO: allow copying video, only reencoding audio
-    video_copy = ['-c:v', 'copy']
-    if ext == '.webm':  # if webm, use vp9
-        if get_video_encoding(args.file) == 'vp9':
-            print(f'{TermColors.WARNING}Skipped: {TermColors.ENDC}{filename}{orig_ext}.')
-            return
-        if args.two_pass:
-            video_encode.append(['-c:v', 'libvpx-vp9', '-b:v', f'{args.video_bitrate}k', '-pass', '1'])
-            video_encode.append(['-c:v', 'libvpx-vp9', '-b:v', f'{args.video_bitrate}k', '-pass', '2'])
+    # TODO: temporary folder on same disk (in same folder?) as file
+    with tempfile.TemporaryDirectory() as temp_dir:
+        out_path = f'{temp_dir}/{out_file.split("/")[-1]}'
+        out_param = [out_path]
+
+        if args.verbose:
+            print(f'{TermColors.OKBLUE}Input        : {TermColors.ENDC}{in_file}')
+            print(f'{TermColors.OKBLUE}Temp location: {TermColors.ENDC}{out_path}')
+            if args.overwrite:
+                print(f'{TermColors.OKBLUE}Output       : {TermColors.ENDC}{in_file}')
+            else:
+                print(f'{TermColors.OKBLUE}Output       : {TermColors.ENDC}{out_file}')
+
+        # set up encoding
+        video_encode = []
+        # do not init video_encode to video_copy, this will break if you apply filters
+        # TODO: allow copying video, only reencoding audio
+        video_copy = ['-c:v', 'copy']
+        if ext == '.webm':  # if webm, use vp9
+            if args.two_pass:
+                video_encode.append(['-c:v', 'libvpx-vp9', '-b:v', f'{args.video_bitrate}k', '-pass', '1'])
+                video_encode.append(['-c:v', 'libvpx-vp9', '-b:v', f'{args.video_bitrate}k', '-pass', '2'])
+            else:
+                video_encode.append(['-c:v', 'libvpx-vp9', '-b:v', f'{args.video_bitrate}k'])
+
+            # force reencode audio in case source is not opus
+            args.reencode_audio = True
+        elif ext == '.mp4':  # iyf mp4, use h265 (or av1)
+            if args.two_pass:
+                params = ['pass=1']
+                if args.quiet or not args.verbose:
+                    params.append('log-level=error')
+                video_encode.append(['-c:v', 'libx265', '-preset', 'slow', '-x265-params', ':'.join(params), '-b:v',
+                                     f'{args.video_bitrate}k'])
+                params = ['pass=2']
+                if args.quiet or not args.verbose:
+                    params.append('log-level=error')
+                video_encode.append(['-c:v', 'libx265', '-preset', 'slow', '-x265-params', ':'.join(params), '-b:v',
+                                     f'{args.video_bitrate}k'])
+            else:
+                params = [f'crf={args.video_crf}']
+                if args.quiet or not args.verbose:
+                    params.append('log-level=error')
+                video_encode.append(['-c:v', 'libx265', '-preset', 'fast', '-x265-params', ':'.join(params)])
+
+        audio_encode = []
+        # do not init audio_encode to audio_copy, this will break if you apply filters
+        audio_copy = ['-c:a', 'copy']
+        opus_encode = ['-c:a', 'libopus', '-b:a', f'{args.audio_bitrate}k']
+        if args.reencode_audio:
+            if ext == '.mp4' or ext == '.webm':
+                audio_encode = opus_encode
         else:
-            video_encode.append(['-c:v', 'libvpx-vp9', '-b:v', f'{args.video_bitrate}k'])
+            if ext == '.webm' and get_audio_encoding(args.file) != 'opus':
+                # reencoding is required if converting to webm and opus is not available
+                audio_encode = opus_encode
+            else:
+                audio_encode = audio_copy
 
-        # force reencode audio in case source is not opus
-        args.reencode_audio = True
-    elif ext == '.mp4':  # iyf mp4, use h265 (or av1)
-        if get_video_encoding(args.file) == 'hevc':
-            print(f'{TermColors.WARNING}Skipped: {TermColors.ENDC}{filename}{orig_ext}')
-            return
-        if args.two_pass:
-            params = ['pass=1']
-            if args.quiet or not args.verbose:
-                params.append('log-level=error')
-            video_encode.append(['-c:v', 'libx265', '-preset', 'slow', '-x265-params', ':'.join(params), '-b:v',
-                                 f'{args.video_bitrate}k'])
-            params = ['pass=2']
-            if args.quiet or not args.verbose:
-                params.append('log-level=error')
-            video_encode.append(['-c:v', 'libx265', '-preset', 'slow', '-x265-params', ':'.join(params), '-b:v',
-                                 f'{args.video_bitrate}k'])
+        null_path = ''
+        if os.name == 'nt':
+            null_path = 'NUL'
         else:
-            params = [f'crf={args.video_crf}']
-            if args.quiet or not args.verbose:
-                params.append('log-level=error')
-            video_encode.append(['-c:v', 'libx265', '-preset', 'fast', '-x265-params', ':'.join(params)])
+            null_path = '/dev/null'
 
-    audio_encode = []
-    # do not init audio_encode to audio_copy, this will break if you apply filters
-    audio_copy = ['-c:a', 'copy']
-    opus_encode = ['-c:a', 'libopus', '-b:a', f'{args.audio_bitrate}k']
-    if args.reencode_audio:
-        if ext == '.mp4' or ext == '.webm':
-            audio_encode = opus_encode
-    else:
-        if ext == '.webm' and get_audio_encoding(args.file) != 'opus':
-            # reencoding is required if converting to webm and opus is not available
-            audio_encode = opus_encode
+        two_pass = ['-an', '-f', 'null', null_path]
+
+        # set up filters
+        video_filter_args = []
+        video_filter_extras = []
+        if args.decimate:
+            video_filter_args.append('mpdecimate')
+            video_filter_extras += ['-fps_mode', 'vfr']
+            # matroska: -max_interleave_delta 0?
+            # fixes the warning but not the output files
+        if args.cap_framerate:
+            video_filter_args.append('fps=fps=5')
+
+        if len(video_filter_args) > 0:
+            video_filters = ['-filter:v', ','.join(video_filter_args)] + video_filter_extras
         else:
-            audio_encode = audio_copy
+            video_filters = video_filter_extras
 
-    null_path = ''
-    if os.name == 'nt':
-        null_path = 'NUL'
-    else:
-        null_path = '/dev/null'
+        audio_filter_args = []
+        if args.merge_stereo:
+            audio_filter_args.append('pan=stereo|c0<c0+c1|c1<c0+c1')
 
-    two_pass = ['-an', '-f', 'null', null_path]
+        if len(audio_filter_args) > 0:
+            audio_filters = ['-af', ','.join(audio_filter_args)]
+        else:
+            audio_filters = []
 
-    # set up filters
-    video_filter_args = []
-    video_filter_extras = []
-    if args.decimate:
-        video_filter_args.append('mpdecimate')
-        video_filter_extras += ['-fps_mode', 'vfr']
-        # matroska: -max_interleave_delta 0?
-        # fixes the warning but not the output files
-    if args.cap_framerate:
-        video_filter_args.append('fps=fps=5')
-
-    if len(video_filter_args) > 0:
-        video_filters = ['-filter:v', ','.join(video_filter_args)] + video_filter_extras
-    else:
-        video_filters = video_filter_extras
-
-    audio_filter_args = []
-    if args.merge_stereo:
-        audio_filter_args.append('pan=stereo|c0<c0+c1|c1<c0+c1')
-
-    if len(audio_filter_args) > 0:
-        audio_filters = ['-af', ','.join(audio_filter_args)]
-    else:
-        audio_filters = []
-
-    if args.overwrite:
-        print(f"{TermColors.OKGREEN}Processing{TermColors.ENDC} {in_file}", flush=True)
-    else:
-        print(f"{in_file} {TermColors.OKGREEN}=>{TermColors.ENDC} {out_file}", flush=True)
-
-    # execute
-    if args.two_pass:
-        extra_params = []
         if args.overwrite:
-            extra_params.append('-y')
-        r = subprocess.run(ffmpeg + extra_params + in_param + video_encode[0] + two_pass)
-        if r.returncode == 0:
-            subprocess.run(ffmpeg + extra_params + in_param + video_encode[
-                1] + video_filters + audio_encode + audio_filters + out_param)
-            possible_dirt = ['x265_2pass.log', 'x265_2pass.log.cutree']
-            for dirt in possible_dirt:
-                os.remove(dirt)
-    else:
-        subprocess.run(ffmpeg + in_param + video_encode[0] + video_filters + audio_encode + audio_filters + out_param)
+            print(f"{TermColors.OKGREEN}Processing{TermColors.ENDC} {in_file}", flush=True)
+        else:
+            print(f"{in_file} {TermColors.OKGREEN}=>{TermColors.ENDC} {out_file}", flush=True)
 
-    if args.overwrite:
-        os.replace('{}{}{}'.format(filename, args.distinguisher, ext), '{}{}'.format(filename, ext))
+        # execute
+        if args.two_pass:
+            extra_params = []
+            if args.overwrite:
+                extra_params.append('-y')
+            command = ffmpeg + extra_params + in_param + video_encode[0] + two_pass
+            if args.verbose:
+                print(f'{TermColors.OKCYAN}First pass:{TermColors.ENDC} {command}', flush=True)
+            r = subprocess.run(command)
+            if r.returncode == 0:
+                command = ffmpeg + extra_params + in_param + video_encode[
+                    1] + video_filters + audio_encode + audio_filters + out_param
+                if args.verbose:
+                    print(f'{TermColors.OKCYAN}Second pass:{TermColors.ENDC} {command}', flush=True)
+                r = subprocess.run(command)
+                possible_dirt = ['x265_2pass.log', 'x265_2pass.log.cutree']
+                for dirt in possible_dirt:
+                    os.remove(dirt)
+            else:
+                print(f'{TermColors.FAIL}First pass failed, aborting{TermColors.ENDC}')
+        else:
+            command = ffmpeg + in_param + video_encode[0] + video_filters + audio_encode + audio_filters + out_param
+            if args.verbose:
+                print(f'{TermColors.OKCYAN}Running: {command}{TermColors.ENDC}', flush=True)
+            r = subprocess.run(command)
+
+        if args.overwrite and r.returncode == 0:
+            if args.verbose:
+                print(f'{TermColors.OKCYAN}Overwriting{TermColors.ENDC}: f{out_path} => f{in_file}')
+            shutil.move(out_path, in_file)
+        else:
+            print(f'{TermColors.FAIL}Not overwriting original file because some command failed{TermColors.ENDC}')
 
 
 if __name__ == "__main__":
